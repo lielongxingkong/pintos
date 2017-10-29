@@ -89,10 +89,13 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+  struct thread *t = thread_current ();
   int64_t start = timer_ticks ();
 
+  t->timer = start + ticks;
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
+
+  if (timer_elapsed (start) < ticks)
     thread_yield ();
 }
 

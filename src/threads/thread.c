@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -462,6 +463,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->timer = 0;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -490,10 +492,29 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  struct thread *t, *sentinel;
+
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+
+  // Add for project 1 alarm clock.
+  // Check time up when thread sched in.
+  sentinel = list_entry (list_front (&ready_list), struct thread, elem);
+  while (true)
+    {
+      t = list_entry (list_pop_front (&ready_list), struct thread, elem);
+      if (timer_ticks() >= t->timer) // means time up
+        {
+          t->timer = 0;
+          return t;
+        }
+      else
+        list_push_back (&ready_list, &t->elem);
+
+      //check loop and return idle if no thread time up
+      if (t == sentinel)
+        return idle_thread;
+    }
 }
 
 /* Completes a thread switch by activating the new thread's page
