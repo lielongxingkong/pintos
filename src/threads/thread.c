@@ -241,7 +241,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, less_prio, (void *)0);
+  list_insert_ordered (&ready_list, &t->elem, less_thread_prio, (void *)0);
   intr_set_level (old_level);
 }
 
@@ -312,7 +312,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, less_prio, (void *)0);
+    list_insert_ordered (&ready_list, &cur->elem, less_thread_prio, (void *)0);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -590,7 +590,7 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-bool less_prio (const struct list_elem *a, const struct list_elem *b,
+bool less_thread_prio (const struct list_elem *a, const struct list_elem *b,
            void *aux UNUSED)
 {
   struct thread *t_a, *t_b;

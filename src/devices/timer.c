@@ -36,10 +36,10 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 static void alarm_clocks(void);
-bool less (const struct list_elem *a, const struct list_elem *b,
+bool less_timer (const struct list_elem *a, const struct list_elem *b,
            void *aux UNUSED);
 
-bool less (const struct list_elem *a, const struct list_elem *b,
+bool less_timer (const struct list_elem *a, const struct list_elem *b,
            void *aux UNUSED)
 {
   struct clock *clock_a, *clock_b;
@@ -120,7 +120,7 @@ timer_sleep (int64_t ticks)
   if (timer_elapsed (start) < ticks)
     {
       old_level = intr_disable ();
-      list_insert_ordered (&clock_list, &clock->elem, less, (void *)0x0);
+      list_insert_ordered (&clock_list, &clock->elem, less_timer, (void *)0x0);
       thread_block ();
       intr_set_level (old_level);
     }
