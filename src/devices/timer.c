@@ -3,10 +3,12 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <list.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -24,11 +26,27 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* List of alarm clock list ordered by time.
+ *    wake up thread when time up. */
+static struct list clock_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+static void alarm_clocks(void);
+bool less (const struct list_elem *a, const struct list_elem *b,
+           void *aux UNUSED);
+
+bool less (const struct list_elem *a, const struct list_elem *b,
+           void *aux UNUSED)
+{
+  struct clock *clock_a, *clock_b;
+  clock_a = list_entry (a, struct clock, elem);
+  clock_b = list_entry (b, struct clock, elem);
+  return clock_a->timeup < clock_b->timeup;
+}
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -37,6 +55,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&clock_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -89,14 +108,22 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  struct thread *t = thread_current ();
+  enum intr_level old_level;
   int64_t start = timer_ticks ();
+  struct clock *clock = malloc (sizeof *clock);
 
-  t->timer = start + ticks;
+  clock->timeup = start + ticks;
+  clock->t = thread_current ();
+
   ASSERT (intr_get_level () == INTR_ON);
 
   if (timer_elapsed (start) < ticks)
-    thread_yield ();
+    {
+      old_level = intr_disable ();
+      list_insert_ordered (&clock_list, &clock->elem, less, (void *)0x0);
+      thread_block ();
+      intr_set_level (old_level);
+    }
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -174,7 +201,25 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  alarm_clocks ();
   thread_tick ();
+}
+
+/* check alarmed clocks. */
+static void alarm_clocks(void)
+{
+  ASSERT (intr_get_level () == INTR_OFF);
+
+  if (!list_empty (&clock_list))
+    while (true)
+    {
+      if (!list_empty(&clock_list) &&
+          ticks >= list_entry (list_front (&clock_list), struct clock, elem) ->timeup)
+        thread_unblock (list_entry (list_pop_front (&clock_list),
+                        struct clock, elem) ->t);
+      else
+        break;
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -472,7 +472,6 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->timer = 0;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -501,33 +500,13 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  struct thread *t, *sentinel;
   int i;
 
   // traverse each level queue
   // Otherwise, return idle_thread
   for (i = PRI_MAX; i >= PRI_MIN; i--)
-    {
-      // find a thread in ready_list[i]
-      while (true)
-        {
-          if (list_empty (&ready_list[i]))
-            break;
-
-          sentinel = list_entry (list_front (&ready_list[i]), struct thread, elem);
-          t = list_entry (list_pop_front (&ready_list[i]), struct thread, elem);
-          if (timer_ticks() >= t->timer) // means time up
-            {
-              t->timer = 0;
-              return t;
-            }
-          else
-            list_push_back (&ready_list[i], &t->elem);
-
-          if (t == sentinel)
-            break;
-        }
-    }
+      if (!list_empty (&ready_list[i]))
+        return list_entry (list_pop_front (&ready_list[i]), struct thread, elem);
   return idle_thread;
 }
 
