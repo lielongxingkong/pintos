@@ -356,5 +356,5 @@ bool less_wait_prio (const struct list_elem *a, const struct list_elem *b,
   struct semaphore_elem *t_a, *t_b;
   t_a = list_entry (a, struct semaphore_elem, elem);
   t_b = list_entry (b, struct semaphore_elem, elem);
-  return t_a->priority < t_b->priority;
+  return t_a->priority <= t_b->priority;
 }

@@ -597,5 +597,5 @@ bool less_thread_prio (const struct list_elem *a, const struct list_elem *b,
   struct thread *t_a, *t_b;
   t_a = list_entry (a, struct thread, elem);
   t_b = list_entry (b, struct thread, elem);
-  return t_a->priority < t_b->priority;
+  return t_a->priority <= t_b->priority;
 }

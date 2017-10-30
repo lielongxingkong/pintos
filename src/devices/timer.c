@@ -45,7 +45,7 @@ bool less_timer (const struct list_elem *a, const struct list_elem *b,
   struct clock *clock_a, *clock_b;
   clock_a = list_entry (a, struct clock, elem);
   clock_b = list_entry (b, struct clock, elem);
-  return clock_a->timeup < clock_b->timeup;
+  return clock_a->timeup <= clock_b->timeup;
 }
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
