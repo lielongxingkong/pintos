@@ -201,7 +201,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  if (thread_current ()->priority < priority)
+  if (thread_current ()->d_priority < priority)
     thread_yield();
 
   return tid;
@@ -237,7 +237,6 @@ thread_unblock (struct thread *t)
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
-  ASSERT (PRI_MIN <= t->priority && t->priority <= PRI_MAX);
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
@@ -309,7 +308,6 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-  ASSERT (PRI_MIN <= cur->priority && cur->priority <= PRI_MAX);
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
@@ -340,17 +338,43 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  int prev_priority = thread_current ()->priority;
-  thread_current ()->priority = new_priority;
-  if (new_priority < prev_priority)
-    thread_yield();
+  struct thread *t = thread_current ();
+  int prev_d_priority = t->d_priority;
+  bool donating = t->d_priority > t->priority ? true : false;
+
+  t->priority = new_priority;
+  if (!donating || new_priority > prev_d_priority)
+    t->d_priority = new_priority;
+  if (new_priority < prev_d_priority)
+      thread_yield();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return thread_current ()->d_priority;
+}
+
+void thread_donate_priority (struct thread *t, int new_priority) 
+{
+  enum intr_level old_level;
+
+  ASSERT (t != thread_current ());
+
+  // in ready_list
+  if (new_priority != t->d_priority)
+    {
+      t->d_priority = new_priority;
+      if (t->status == THREAD_READY && new_priority != t->d_priority)
+        {
+          // Re-order ready_list
+          old_level = intr_disable ();
+          list_remove (&t->elem);
+          list_insert_ordered (&ready_list, &t->elem, less_thread_prio, (void *)0);
+          intr_set_level (old_level);
+        }
+    }
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -469,8 +493,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
+  t->priority = t->d_priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init (&t->holding_locks);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -597,5 +622,5 @@ bool less_thread_prio (const struct list_elem *a, const struct list_elem *b,
   struct thread *t_a, *t_b;
   t_a = list_entry (a, struct thread, elem);
   t_b = list_entry (b, struct thread, elem);
-  return t_a->priority <= t_b->priority;
+  return t_a->d_priority <= t_b->d_priority;
 }

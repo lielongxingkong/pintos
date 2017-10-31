@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +25,8 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#define DONATION_DEPTH 8                /* Depth of nested prio donation. */
 
 /* A kernel thread or user process.
 
@@ -87,8 +91,13 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+
+    int priority;                       /* Priority. A save for thread_set_priority */
+    int d_priority;                     /* Donated Priority. Mainly used. */
+    struct list holding_locks;          /* List holding locks. */
+    struct lock *waiting;               /* Only record lastest lock waiting for.
+                                         * Using DFS nested donating for saving space. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -132,6 +141,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_donate_priority (struct thread *, int);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
