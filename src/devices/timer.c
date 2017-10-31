@@ -29,6 +29,10 @@ static unsigned loops_per_tick;
 /* List of alarm clock list ordered by time.
  *    wake up thread when time up. */
 static struct list clock_list;
+/* List for alarm clock GC out of interrupt context. */
+static struct list clock_gc_list;
+/* Lock protecting clock GC list. */
+static struct lock lock_clk_gc;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -56,6 +60,8 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init (&clock_list);
+  list_init (&clock_gc_list);
+  lock_init (&lock_clk_gc);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -116,6 +122,13 @@ timer_sleep (int64_t ticks)
   clock->t = thread_current ();
 
   ASSERT (intr_get_level () == INTR_ON);
+
+  while (!list_empty(&clock_gc_list))
+    {
+        lock_acquire (&lock_clk_gc);
+        free (list_entry (list_pop_front (&clock_gc_list), struct clock, elem));
+        lock_release (&lock_clk_gc);
+    }
 
   if (timer_elapsed (start) < ticks)
     {
@@ -208,6 +221,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 /* check alarmed clocks. */
 static void alarm_clocks(void)
 {
+  struct clock *clock;
   ASSERT (intr_get_level () == INTR_OFF);
 
   if (!list_empty (&clock_list))
@@ -215,8 +229,11 @@ static void alarm_clocks(void)
     {
       if (!list_empty(&clock_list) &&
           ticks >= list_entry (list_front (&clock_list), struct clock, elem) ->timeup)
-        thread_unblock (list_entry (list_pop_front (&clock_list),
-                        struct clock, elem) ->t);
+      {
+        clock = list_entry (list_pop_front (&clock_list), struct clock, elem);
+        thread_unblock (clock->t);
+        list_push_back (&clock_gc_list, &clock->elem);
+      }
       else
         break;
     }
