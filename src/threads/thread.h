@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <fixed_point.h>
 #include "threads/synch.h"
 
 
@@ -27,6 +28,14 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 #define DONATION_DEPTH 8                /* Depth of nested prio donation. */
+
+/* Thread nices. */
+#define NICE_MIN -20                    /* Lowest nice. */
+#define NICE_DEFAULT 0                  /* Default nice. */
+#define NICE_MAX 20                     /* Highest nice. */
+
+#define REFRESH_INTERVAL 1000           /* Time interval refresh scheduling info
+                                         * in milliseconds. */
 
 /* A kernel thread or user process.
 
@@ -98,6 +107,9 @@ struct thread
     struct list holding_locks;          /* List holding locks. */
     struct lock *waiting;               /* Only record lastest lock waiting for.
                                          * Using DFS nested donating for saving space. */
+
+    int nice;                           /* Nice. */
+    fixed recent_cpu;                   /* Aamount of CPU time received recently.*/
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */

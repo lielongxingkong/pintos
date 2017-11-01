@@ -219,7 +219,7 @@ lock_acquire (struct lock *lock)
 
   t->waiting = lock;
 
-  for (l = lock; l && l->holder && cnt-- && prio_input > l->max_prio; 
+  for (l = lock; !thread_mlfqs && l && l->holder && cnt-- && prio_input > l->max_prio;
        l = l->holder->waiting)
     {
       // l must be in its holder's holding list
@@ -273,7 +273,7 @@ lock_release (struct lock *lock)
 
   t->d_priority = t->priority;
   list_remove (&lock->elem);
-  if (!list_empty (&t->holding_locks))
+  if (!thread_mlfqs && !list_empty (&t->holding_locks))
   {
     max_prio = list_entry (list_back (&t->holding_locks), struct lock, elem)->max_prio;
     if (max_prio > t->priority)
