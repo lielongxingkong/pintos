@@ -32,10 +32,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-bool less_wait_prio (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED);
-bool less_lock_prio (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED);
+static bool less_wait_prio (const struct list_elem *, const struct list_elem *,
+                            void *);
+static bool less_lock_prio (const struct list_elem *, const struct list_elem *,
+                            void *);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -388,20 +388,22 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-bool less_wait_prio (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED)
+static bool
+less_wait_prio (const struct list_elem *a_, const struct list_elem *b_,
+                void *aux UNUSED)
 {
-  struct semaphore_elem *t_a, *t_b;
-  t_a = list_entry (a, struct semaphore_elem, elem);
-  t_b = list_entry (b, struct semaphore_elem, elem);
-  return t_a->priority <= t_b->priority;
+  const struct semaphore_elem *a = list_entry (a_, struct semaphore_elem, elem);
+  const struct semaphore_elem *b = list_entry (b_, struct semaphore_elem, elem);
+
+  return a->priority <= b->priority;
 }
 
-bool less_lock_prio (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED)
+static bool
+less_lock_prio (const struct list_elem *a_, const struct list_elem *b_,
+                void *aux UNUSED) 
 {
-  struct lock *l_a, *l_b;
-  l_a = list_entry (a, struct lock, elem);
-  l_b = list_entry (b, struct lock, elem);
-  return l_a->max_prio < l_b->max_prio;
+  const struct lock *a = list_entry (a_, struct lock, elem);
+  const struct lock *b = list_entry (b_, struct lock, elem);
+
+  return a->max_prio < b->max_prio;
 }

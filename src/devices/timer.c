@@ -35,8 +35,8 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 static void alarm_clocks(void);
-bool less_timer (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED);
+static bool less_timer (const struct list_elem *, const struct list_elem *,
+                        void *);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -275,9 +275,11 @@ real_time_delay (int64_t num, int32_t denom)
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
 
-bool less_timer (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED)
+static bool
+less_timer (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED)
 {
-  return list_entry (a, struct thread, clock_elem)->timeup
-         <= list_entry (b, struct thread, clock_elem)->timeup;
+  const struct thread *a = list_entry (a_, struct thread, clock_elem);
+  const struct thread *b = list_entry (b_, struct thread, clock_elem);
+  return a->timeup < b->timeup;
 }
