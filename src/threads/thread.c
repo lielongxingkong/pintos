@@ -240,7 +240,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, less_thread_prio, NULL);
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -311,7 +311,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, less_thread_prio, NULL);
+    list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -358,23 +358,8 @@ thread_get_priority (void)
 
 void thread_donate_priority (struct thread *t, int new_priority) 
 {
-  enum intr_level old_level;
-
   ASSERT (t != thread_current ());
-
-  // in ready_list
-  if (new_priority != t->d_priority)
-    {
-      t->d_priority = new_priority;
-      if (t->status == THREAD_READY && new_priority != t->d_priority)
-        {
-          // Re-order ready_list
-          old_level = intr_disable ();
-          list_remove (&t->elem);
-          list_insert_ordered (&ready_list, &t->elem, less_thread_prio, NULL);
-          intr_set_level (old_level);
-        }
-    }
+  t->d_priority = new_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -523,10 +508,16 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  struct list_elem *e;
+
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_back (&ready_list), struct thread, elem);
+  {
+    e = list_max (&ready_list, less_thread_prio, NULL);
+    list_remove(e);
+    return list_entry (e, struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -622,5 +613,5 @@ bool less_thread_prio (const struct list_elem *a, const struct list_elem *b,
   struct thread *t_a, *t_b;
   t_a = list_entry (a, struct thread, elem);
   t_b = list_entry (b, struct thread, elem);
-  return t_a->d_priority <= t_b->d_priority;
+  return t_a->d_priority < t_b->d_priority;
 }
