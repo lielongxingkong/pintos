@@ -114,6 +114,9 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    int64_t timeup;                     /* Time to wakeup using wall-clock ticks */
+    struct list_elem clock_elem;        /* Clock list element. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

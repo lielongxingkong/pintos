@@ -8,7 +8,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -29,10 +28,6 @@ static unsigned loops_per_tick;
 /* List of alarm clock list ordered by time.
  *    wake up thread when time up. */
 static struct list clock_list;
-/* List for alarm clock GC out of interrupt context. */
-static struct list clock_gc_list;
-/* Lock protecting clock GC list. */
-static struct lock lock_clk_gc;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -43,15 +38,6 @@ static void alarm_clocks(void);
 bool less_timer (const struct list_elem *a, const struct list_elem *b,
            void *aux UNUSED);
 
-bool less_timer (const struct list_elem *a, const struct list_elem *b,
-           void *aux UNUSED)
-{
-  struct clock *clock_a, *clock_b;
-  clock_a = list_entry (a, struct clock, elem);
-  clock_b = list_entry (b, struct clock, elem);
-  return clock_a->timeup <= clock_b->timeup;
-}
-
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -60,8 +46,6 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init (&clock_list);
-  list_init (&clock_gc_list);
-  lock_init (&lock_clk_gc);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -116,24 +100,16 @@ timer_sleep (int64_t ticks)
 {
   enum intr_level old_level;
   int64_t start = timer_ticks ();
-  struct clock *clock = malloc (sizeof *clock);
+  struct thread *t = thread_current ();
 
-  clock->timeup = start + ticks;
-  clock->t = thread_current ();
+  t->timeup = start + ticks;
 
   ASSERT (intr_get_level () == INTR_ON);
-
-  while (!list_empty(&clock_gc_list))
-    {
-        lock_acquire (&lock_clk_gc);
-        free (list_entry (list_pop_front (&clock_gc_list), struct clock, elem));
-        lock_release (&lock_clk_gc);
-    }
 
   if (timer_elapsed (start) < ticks)
     {
       old_level = intr_disable ();
-      list_insert_ordered (&clock_list, &clock->elem, less_timer, (void *)0x0);
+      list_insert_ordered (&clock_list, &t->clock_elem, less_timer, NULL);
       thread_block ();
       intr_set_level (old_level);
     }
@@ -221,22 +197,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
 /* check alarmed clocks. */
 static void alarm_clocks(void)
 {
-  struct clock *clock;
   ASSERT (intr_get_level () == INTR_OFF);
 
-  if (!list_empty (&clock_list))
-    while (true)
-    {
-      if (!list_empty(&clock_list) &&
-          ticks >= list_entry (list_front (&clock_list), struct clock, elem) ->timeup)
-      {
-        clock = list_entry (list_pop_front (&clock_list), struct clock, elem);
-        thread_unblock (clock->t);
-        list_push_back (&clock_gc_list, &clock->elem);
-      }
-      else
-        break;
-    }
+  while (!list_empty(&clock_list) &&
+         ticks >= list_entry (list_front (&clock_list), struct thread, clock_elem)->timeup)
+    thread_unblock (list_entry (list_pop_front (&clock_list), struct thread, clock_elem));
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -308,4 +273,11 @@ real_time_delay (int64_t num, int32_t denom)
      the possibility of overflow. */
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
+}
+
+bool less_timer (const struct list_elem *a, const struct list_elem *b,
+           void *aux UNUSED)
+{
+  return list_entry (a, struct thread, clock_elem)->timeup
+         <= list_entry (b, struct thread, clock_elem)->timeup;
 }
