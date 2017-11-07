@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,10 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#define EXIT_KILLED -2                  /* Exit status killed by kernel. */
+#define EXIT_UNNORMAL -1                /* Unnormally exit status. */
+#define EXIT_NORMAL 0                   /* Normally exit status. */
 
 /* A kernel thread or user process.
 
@@ -85,6 +90,7 @@ struct thread
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
     enum thread_status status;          /* Thread state. */
+    int exit_status;                    /* Exit status. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
@@ -92,6 +98,12 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    struct list_elem child_elem;        /* List element. */
+
+    struct list children;
+    struct thread *parent;
+    struct semaphore parent_waiting;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -124,6 +136,7 @@ tid_t thread_tid (void);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
+void thread_exit_with_reason (int exit_status);
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */

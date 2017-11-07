@@ -18,15 +18,23 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAXARGS 30
+
+#define push(TOP, VAR, TYPE)			\
+          do {					\
+            TOP = (void *)((uintptr_t)(TOP) - sizeof (VAR));	\
+            *((TYPE *)TOP) = VAR;			\
+          } while (0)
+
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmdline)
 {
   char *fn_copy;
   tid_t tid;
@@ -36,10 +44,10 @@ process_execute (const char *file_name)
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy, cmdline, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (cmdline, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -48,9 +56,9 @@ process_execute (const char *file_name)
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *cmdline_)
 {
-  char *file_name = file_name_;
+  char *cmdline = cmdline_;
   struct intr_frame if_;
   bool success;
 
@@ -59,12 +67,12 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmdline, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (cmdline);
   if (!success) 
-    thread_exit ();
+    thread_exit_with_reason (EXIT_UNNORMAL);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -88,7 +96,34 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  struct thread *t = thread_current ();
+  struct thread *child = NULL;
+  struct list_elem *e;
+  bool is_child = false;
+
+  if (child_tid == TID_ERROR)
+    return -1;
+
+  for (e = list_begin (&t->children); e != list_end (&t->children);
+       e = list_next (e))
+    {
+      child = (struct thread *) list_entry (e, struct thread, child_elem);
+      if (child->tid == child_tid)
+        {
+          is_child = true;
+          break;
+        }
+    }
+  if (!is_child)
+    return -1;
+
+  if (!list_empty(&(child->parent_waiting.waiters)))
+    return -1;
+  sema_down (&child->parent_waiting);
+  if (child->exit_status == EXIT_KILLED)
+    return -1;
+  return child->exit_status;
+
 }
 
 /* Free the current process's resources. */
@@ -98,6 +133,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -206,14 +242,17 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (char *cmdline, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
-  int i;
+  int i, argc;
+  char *argv[MAXARGS];
+  char *token, *save_ptr;
+  char *file_name;
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -221,6 +260,30 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  /* Set up stack. */
+  if (!setup_stack (esp))
+    goto done;
+
+  for (argc = 0, token = strtok_r (cmdline, " ", &save_ptr); token != NULL && argc < MAXARGS;
+       token = strtok_r (NULL, " ", &save_ptr), argc++)
+    {
+      *esp = (char *) ((uintptr_t) *esp - strlen (token) - 1); // strlen no '\0'
+      strlcpy ((char *) *esp, token, strlen (token) + 1);
+      argv[argc] = *esp;
+    }
+  argv[argc] = NULL;
+
+  // Word-aligned
+  *esp = (void *) ROUND_DOWN ((uintptr_t)(*esp), sizeof (uint32_t));
+
+  for (i = argc; i >= 0; i--)
+    push (*esp, argv[i], char *);
+  push (*esp, (uintptr_t)*esp + 4, uintptr_t);
+  push (*esp, argc, int);
+  push (*esp, 0, uintptr_t); // fake return address
+
+  file_name = argv[0];
+  strlcpy (t->name, file_name, strlen(file_name) + 1);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -300,10 +363,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
           break;
         }
     }
-
-  /* Set up stack. */
-  if (!setup_stack (esp))
-    goto done;
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;

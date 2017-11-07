@@ -296,6 +296,13 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
+void
+thread_exit_with_reason (int exit_status)
+{
+  thread_current ()->exit_status = exit_status;
+  thread_exit ();
+}
+
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
@@ -422,7 +429,7 @@ kernel_thread (thread_func *function, void *aux)
 
   intr_enable ();       /* The scheduler runs with interrupts off. */
   function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  thread_exit_with_reason (EXIT_NORMAL); /* If function() returns, kill the thread. */
 }
 
 /* Returns the running thread. */
@@ -459,10 +466,23 @@ init_thread (struct thread *t, const char *name, int priority)
 
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
+  t->exit_status = EXIT_NORMAL;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  sema_init (&t->parent_waiting, 0);
+  list_init (&t->children);
+  if (t == initial_thread)
+    {
+      list_push_back (&initial_thread->children, &t->child_elem);
+      t->parent = NULL;
+    }
+  else
+    {
+      list_push_back (&thread_current ()->children, &t->child_elem);
+      t->parent = thread_current ();
+    }
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -538,6 +558,8 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
+      sema_up (&prev->parent_waiting);
+      list_remove (&prev->child_elem);
       palloc_free_page (prev);
     }
 }
