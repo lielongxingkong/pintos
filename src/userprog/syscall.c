@@ -16,6 +16,7 @@ int sys_halt (struct intr_frame *);
 int sys_exit (struct intr_frame *);
 int sys_write (struct intr_frame *);
 int argptr (struct intr_frame *f, int n, void **pp);
+int argstring (struct intr_frame *f, int n, char **pp);
 int argint (struct intr_frame *f, int n, int *ip);
 int arguint (struct intr_frame *f, int n, unsigned *ip);
 int get_user (const uint8_t *uaddr);
@@ -58,28 +59,27 @@ int get_user (const uint8_t *uaddr)
   return result;
 }
 
+/* Copy data from user-space size == 0 for string */
 size_t copy_from_user (void *dst_, const void *src_, size_t size)
 {
   uint8_t *dst = dst_;
   const uint8_t *src = src_;
+  size_t i = 0;
   int c;
-  int ret = 0;
 
-  if (size <= 0 || src + size >= (uint8_t *)PHYS_BASE
-      || dst == NULL || src == NULL)
+  if (src + size >= (uint8_t *) PHYS_BASE || dst == NULL || src == NULL)
     return -1;
 
-  while (size-- > 0)
+  for (i = 0; i < size && src + i < (uint8_t *) PHYS_BASE; i++)
   {
-    c = get_user (src++);
+    c = get_user (src + i);
     if (c == -1)
-      {
-        ret = -1;
-        break;
-      }
-    *dst++ = (uint8_t)c;
+      return -1;
+    *(dst + i) = (uint8_t)c;
+    if (size == 0 && c == '\0')
+      return 0;
   }
-  return ret;
+  return 0;
 }
 
 int argint (struct intr_frame *f, int n, int *ip)
@@ -114,6 +114,11 @@ int argptr (struct intr_frame *f, int n, void **pp)
     return -1;
   *pp = (void *) i;
   return 0;
+}
+
+int argstring (struct intr_frame *f, int n, char **pp)
+{
+  return argptr (f, n, (void **)pp);
 }
 
 void
