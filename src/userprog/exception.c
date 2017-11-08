@@ -8,8 +8,7 @@
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
-/* Flag for get/put user memory. */
-extern bool mem_copy_flag;
+extern int get_user (const uint8_t *uaddr);
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
@@ -151,11 +150,14 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if (mem_copy_flag)
+  // fix page_fault in get_user context
+  if ((uint32_t)f->eip - (uint32_t)get_user < 12 &&
+      (*(uint32_t *)f->eip & 0x00ffffff) == 0x0002b60f) //movzbl (%edx),%eax
     {
         f->eip = (void *) f->eax;
         f->eax = 0xffffffff;
-        asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (f) : "memory");
+        //asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (f) : "memory");
+        return;
     }
 
   /* To implement virtual memory, delete the rest of the function

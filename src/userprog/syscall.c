@@ -11,9 +11,6 @@
 
 #define BUFSIZE 4096
 
-struct lock mem_copy_lock;
-bool mem_copy_flag;
-
 static void syscall_handler (struct intr_frame *);
 int sys_halt (struct intr_frame *);
 int sys_exit (struct intr_frame *);
@@ -21,7 +18,7 @@ int sys_write (struct intr_frame *);
 int argptr (struct intr_frame *f, int n, void **pp);
 int argint (struct intr_frame *f, int n, int *ip);
 int arguint (struct intr_frame *f, int n, unsigned *ip);
-static int get_user (const uint8_t *uaddr);
+int get_user (const uint8_t *uaddr);
 size_t copy_from_user (void *dst_t, const void *src_, size_t size);
 
 static int (*syscalls[]) (struct intr_frame *) =
@@ -52,7 +49,8 @@ static int (*syscalls[]) (struct intr_frame *) =
  *    UADDR must be below PHYS_BASE.
  *       Returns the byte value if successful, -1 if a segfault
  *          occurred. */
-static int get_user (const uint8_t *uaddr)
+__attribute__ ((noinline)) // use to check context in page_fault()
+int get_user (const uint8_t *uaddr)
 {
   int result;
   asm ("movl $1f, %0; movzbl %1, %0; 1:"
@@ -71,8 +69,6 @@ size_t copy_from_user (void *dst_, const void *src_, size_t size)
       || dst == NULL || src == NULL)
     return -1;
 
-  lock_acquire (&mem_copy_lock);
-  mem_copy_flag = true;
   while (size-- > 0)
   {
     c = get_user (src++);
@@ -83,8 +79,6 @@ size_t copy_from_user (void *dst_, const void *src_, size_t size)
       }
     *dst++ = (uint8_t)c;
   }
-  mem_copy_flag = false;
-  lock_release (&mem_copy_lock);
   return ret;
 }
 
@@ -125,7 +119,6 @@ int argptr (struct intr_frame *f, int n, void **pp)
 void
 syscall_init (void)
 {
-  lock_init (&mem_copy_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
